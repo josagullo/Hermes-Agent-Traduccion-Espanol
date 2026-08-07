@@ -23,7 +23,7 @@ Usa cualquier modelo que quieras — [Nous Portal](https://portal.nousresearch.c
 <table>
 <tr><td><b>Una interfaz de terminal real</b></td><td>TUI completa con edición multilínea, autocompletado de comandos, historial de conversaciones, interrupción y redirección, y salida de herramientas en streaming.</td></tr>
 <tr><td><b>Vive donde tú vives</b></td><td>Telegram, Discord, Slack, WhatsApp, Signal y CLI — todo desde un único proceso gateway. Transcripción de notas de voz, continuidad de conversación entre plataformas.</td></tr>
-<tr><td><b>Un bucle de aprendizaje cerrado</b></td><td>Memoria curada por el agente con recordatorios periódicos. Creación autónoma de habilidades tras tareas complejas. Las habilidades mejoran solas durante el uso. Búsqueda FTS5 de sesiones con resumención por LLM para recuperación entre sesiones. Modelado de usuario dialéctico <a href="https://github.com/plastic-labs/honcho">Honcho</a>. Compatible con el estándar abierto de <a href="https://agentskills.io">agentskills.io</a>.</td></tr>
+<tr><td><b>Un bucle de aprendizaje cerrado</b></td><td>Memoria curada por el agente con recordatorios periódicos. Creación autónoma de habilidades tras tareas complejas. Las habilidades mejoran solas durante el uso. Búsqueda FTS5 de sesiones con resumen mediante LLM para recuperación entre sesiones. Modelado de usuario dialéctico <a href="https://github.com/plastic-labs/honcho">Honcho</a>. Compatible con el estándar abierto de <a href="https://agentskills.io">agentskills.io</a>.</td></tr>
 <tr><td><b>Automatizaciones programadas</b></td><td>Planificador cron integrado con entrega a cualquier plataforma. Informes diarios, copias de seguridad nocturnas, auditorías semanales — todo en lenguaje natural, ejecutándose de forma autónoma.</td></tr>
 <tr><td><b>Delega y paraleliza</b></td><td>Lanza subagentes aislados para flujos de trabajo paralelos. Escribe scripts de Python que llaman a herramientas vía RPC, convirtiendo pipelines de múltiples pasos en turnos de coste cero de contexto.</td></tr>
 <tr><td><b>Funciona en cualquier lugar, no solo en tu laptop</b></td><td>Seis backends de terminal — local, Docker, SSH, Singularity, Modal y Daytona. Daytona y Modal ofrecen persistencia sin servidor — el entorno de tu agente hiberna cuando está inactivo y se activa bajo demanda, costando casi nada entre sesiones. Ejecútalo en un VPS de $5 o un clúster de GPUs.</td></tr>
@@ -64,6 +64,44 @@ Después de la instalación:
 source ~/.bashrc    # recargar shell (o: source ~/.zshrc)
 hermes              # ¡empieza a chatear!
 ```
+
+---
+
+## Solución de problemas
+
+#### Windows Defender o el antivirus marca `uv.exe` como malware
+
+Si tu antivirus (Bitdefender, Windows Defender, etc.) pone en cuarentena `uv.exe` de la carpeta `bin` de Hermes (`%LOCALAPPDATA%\hermes\bin\uv.exe`), es un **falso positivo**. El archivo es `uv` de Astral — el gestor de paquetes de Python en Rust que Hermes incluye para gestionar su entorno Python. Los motores de antivirus basados en ML suelen marcar binarios Rust sin firmar que descargan e instalan paquetes.
+
+**Para verificar que tu copia es auténtica:**
+
+```powershell
+# Instalar GitHub CLI si hace falta
+winget install --id GitHub.cli
+
+# Iniciar sesión en GitHub
+gh auth login
+
+# Ejecutar verificación
+$uv = "$env:LOCALAPPDATA\hermes\bin\uv.exe"
+$ver = (& $uv --version).Split(' ')[1]
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$zip = "$env:TEMP\uv.zip"
+Invoke-WebRequest "https://github.com/astral-sh/uv/releases/download/$ver/uv-x86_64-pc-windows-msvc.zip" -OutFile $zip -UseBasicParsing
+gh attestation verify $zip --repo astral-sh/uv
+Expand-Archive $zip "$env:TEMP\uv_x" -Force
+(Get-FileHash "$env:TEMP\uv_x\uv.exe").Hash -eq (Get-FileHash $uv).Hash
+```
+
+Si la atestación dice "Verification succeeded" y la última línea imprime `True`, estás bien.
+
+**Para poner Hermes en la lista blanca:**
+
+- **Windows Defender:** Ejecuta PowerShell como Administrador → `Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\hermes\bin"`
+- **Bitdefender:** Añade una excepción en la consola de Bitdefender (Protection > Antivirus > Settings > Manage Exceptions)
+- Pon en la lista blanca la **carpeta**, no el hash del archivo — Hermes actualiza `uv` y el hash cambia en cada versión
+
+Para más contexto, ver los reportes de Astral en upstream: [astral-sh/uv#13553](https://github.com/astral-sh/uv/issues/13553), [astral-sh/uv#15011](https://github.com/astral-sh/uv/issues/15011), [astral-sh/uv#10079](https://github.com/astral-sh/uv/issues/10079).
 
 ---
 

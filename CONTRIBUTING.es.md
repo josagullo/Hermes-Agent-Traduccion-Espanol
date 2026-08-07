@@ -18,6 +18,24 @@ Valoramos las contribuciones en este orden:
 
 ---
 
+## Antes de empezar: busca primero
+
+Una búsqueda rápida antes de construir te ahorra tiempo y mantiene limpia la cola de PR — los duplicados son comunes aquí, así que vale la pena un minuto al principio.
+
+- **Busca tanto en PRs e issues abiertos *como* mergeados** para tu tema o síntoma de error — la comprobación de duplicados en la plantilla de PR se dispara en el momento de la revisión, después de que ya hiciste el trabajo:
+  ```bash
+  gh search issues --repo NousResearch/hermes-agent "<tus términos>"
+  gh search prs --repo NousResearch/hermes-agent --state all "<tus términos>"
+  ```
+  O usa la interfaz web: [issues](https://github.com/NousResearch/hermes-agent/issues?q=) · [PRs (todos los estados)](https://github.com/NousResearch/hermes-agent/pulls?q=is%3Apr).
+- **El rastreador de issues puede ir por detrás del código.** Muchas funciones solicitadas ya están implementadas en el árbol, así que también busca en el código fuente (`search_files`, o el grep de tu editor) la capacidad antes de proponerla.
+- **Si un PR abierto ya lo aborda**, considera revisarlo o mejorarlo en lugar de abrir un duplicado competidor.
+- **Para trabajo más grande**, comenta en el issue para señalar que estás trabajando en ello, para que otros no empiecen lo mismo.
+
+Relacionado: #38284 cubre el análogo del lado del agente — el propio Hermes comprobando issues y PRs existentes antes de la autodiagnóstico profundo. Esta sección es el complemento para el colaborador humano.
+
+---
+
 ## ¿Debería ser una Habilidad o una Herramienta?
 
 Esta es la pregunta más común para los nuevos colaboradores. La respuesta casi siempre es **habilidad**.
@@ -64,6 +82,23 @@ Los plugins de memoria independientes:
 Los PRs que añadan un nuevo directorio bajo `plugins/memory/` serán cerrados con un puntero para publicar el proveedor como su propio repositorio. Los proveedores en árbol existentes se mantienen; las correcciones de errores para ellos son bienvenidas.
 
 Esto no es una barra de calidad — es una decisión de acoplamiento y mantenimiento. Los proveedores de memoria son el tipo de plugin más común y no deberían vivir todos en este árbol.
+
+---
+
+## Integraciones de productos de terceros: publica como plugin independiente
+
+La misma regla se extiende a **cualquier plugin que integre el producto o proyecto de otra persona** — backends de observabilidad/métricas, conectores SaaS de proveedores, paneles de analítica, vínculos a servicios de pago e integraciones de terceros similares. **Estos no aterrizan en este repo.**
+
+La razón es la carga de mantenimiento, no la calidad. Cada producto externo absorbido en el árbol central pasa a ser nuestro mantenerlo funcionando contra una base de código en rápida evolución, para un backend que no poseemos ni controlamos. Hermes distribuye mucho y el núcleo se mueve rápido; acoplar productos de terceros en él crea una carga abierta para los mantenedores.
+
+En su lugar, publícalos como un **repo de plugin independiente**:
+
+- Implementa el ABC relevante y usa la ruta de descubrimiento de plugins existente (`~/.hermes/plugins/`, `.hermes/plugins/` del proyecto, o un entry point de pip) — ver [Construir un Plugin de Hermes](https://hermes-agent.nousresearch.com/docs/guides/build-a-hermes-plugin)
+- Registra hooks de ciclo de vida (`pre_tool_call`, `post_tool_call`, `pre_llm_call`, `post_llm_call`, `on_session_start`, `on_session_end`), herramientas (`ctx.register_tool`) y subcomandos CLI (`ctx.register_cli_command`) a través de la superficie que ya exponemos — no se necesitan cambios en el núcleo
+- Si tu plugin necesita una capacidad que el framework no expone, eso es una solicitud de función para **ampliar la superficie de plugin genérica** (un nuevo hook o método `ctx`) — nunca hagas un caso especial para tu plugin en el núcleo
+- Promuévelo en el canal `#plugins-skills-and-skins` del [Discord de Nous Research](https://discord.gg/NousResearch) para que los usuarios puedan encontrarlo e instalarlo
+
+Un plugin de producto de terceros bien construido puede superar la revisión automatizada y aun así cerrarse por esta razón — es una decisión de colocación, no un veredicto sobre el código. Los PRs que añadan tal directorio bajo `plugins/` se cerrarán con un apuntador para publicarlo como su propio repo.
 
 ---
 
@@ -384,6 +419,94 @@ Modos de fallo conocidos y cómo manejarlos.
 Cómo confirma el agente que funcionó.
 ```
 
+### Habilidades específicas de plataforma
+
+Las habilidades pueden declarar qué plataformas de SO soportan mediante el campo de frontmatter `platforms`. Las habilidades con este campo se ocultan automáticamente del system prompt, de `skills_list()` y de los comandos de barra en plataformas incompatibles.
+
+```yaml
+platforms: [macos]            # Solo macOS (ej., iMessage, Recordatorios de Apple)
+platforms: [macos, linux]     # macOS y Linux
+platforms: [windows]          # Solo Windows
+```
+
+Si se omite o vacía el campo, la habilidad se carga en todas las plataformas (retrocompatible). Ver `skills/apple/` para ejemplos de habilidades solo para macOS.
+
+### Activación condicional de habilidades
+
+Las habilidades pueden declarar condiciones que controlan cuándo aparecen en el system prompt, basadas en qué herramientas y toolsets están disponibles en la sesión actual. Esto se usa principalmente para **habilidades de respaldo** — alternativas que solo deben mostrarse cuando una herramienta principal no está disponible.
+
+Se admiten cuatro campos bajo `metadata.hermes`:
+
+```yaml
+metadata:
+  hermes:
+    fallback_for_toolsets: [web]      # Mostrar SOLO cuando estos toolsets no estén disponibles
+    requires_toolsets: [terminal]     # Mostrar SOLO cuando estos toolsets estén disponibles
+    fallback_for_tools: [web_search]  # Mostrar SOLO cuando estas herramientas específicas no estén disponibles
+    requires_tools: [terminal]        # Mostrar SOLO cuando estas herramientas específicas estén disponibles
+```
+
+**Semántica:**
+- `fallback_for_*`: La habilidad es un respaldo. Está **oculta** cuando las herramientas/toolsets listados están disponibles, y **se muestra** cuando no lo están. Úsalo para alternativas gratuitas a herramientas premium.
+- `requires_*`: La habilidad necesita ciertas herramientas para funcionar. Está **oculta** cuando las herramientas/toolsets listados no están disponibles. Úsalo para habilidades que dependen de capacidades específicas (ej., una habilidad que solo tiene sentido con acceso a terminal).
+- Si se especifican ambos, deben cumplirse ambas condiciones para que la habilidad aparezca.
+- Si no se especifica ninguno, la habilidad siempre se muestra (retrocompatible).
+
+**Ejemplos:**
+
+```yaml
+# Búsqueda DuckDuckGo — se muestra cuando Firecrawl (toolset web) no está disponible
+metadata:
+  hermes:
+    fallback_for_toolsets: [web]
+
+# Habilidad de hogar inteligente — solo útil cuando terminal está disponible
+metadata:
+  hermes:
+    requires_toolsets: [terminal]
+
+# Respaldo de navegador local — se muestra cuando Browserbase no está disponible
+metadata:
+  hermes:
+    fallback_for_toolsets: [browser]
+```
+
+El filtrado ocurre en el momento de construcción del prompt en `agent/prompt_builder.py`. La función `build_skills_system_prompt()` recibe el conjunto de herramientas y toolsets disponibles del agente y usa `_skill_should_show()` para evaluar las condiciones de cada habilidad.
+
+### Metadatos de configuración de habilidades
+
+Las habilidades pueden declarar metadatos de configuración segura al cargar mediante el campo de frontmatter `required_environment_variables`. Los valores faltantes no ocultan la habilidad del descubrimiento; disparan un prompt seguro solo por CLI cuando la habilidad se carga realmente.
+
+```yaml
+required_environment_variables:
+  - name: TENOR_API_KEY
+    prompt: Clave API de Tenor
+    help: Obtén una clave en https://developers.google.com/tenor
+    required_for: funcionalidad completa
+```
+
+El usuario puede omitir la configuración y seguir cargando la habilidad. Hermes solo expone metadatos (`stored_as`, `skipped`, `validated`) al modelo — nunca el valor secreto.
+
+El legado `prerequisites.env_vars` sigue soportado y se normaliza a la nueva representación.
+
+```yaml
+prerequisites:
+  env_vars: [TENOR_API_KEY]       # Alias legado de required_environment_variables
+  commands: [curl, jq]            # Comprobaciones CLI de aviso
+```
+
+Las sesiones de gateway y mensajería nunca recogen secretos en banda; indican al usuario ejecutar `hermes setup` o actualizar `~/.hermes/.env` localmente.
+
+**Cuándo declarar variables de entorno requeridas:**
+- La habilidad usa una clave API o token que debe recogerse de forma segura en el momento de carga
+- La habilidad puede seguir siendo útil si el usuario omite la configuración, pero puede degradarse con elegancia
+
+**Cuándo declarar prerrequisitos de comandos:**
+- La habilidad depende de una herramienta CLI que puede no estar instalada (ej., `himalaya`, `openhue`, `ddgs`)
+- Trata las comprobaciones de comandos como guía, no como ocultamiento en el momento del descubrimiento
+
+Ver `skills/gifs/gif-search/` y `skills/email/himalaya/` para ejemplos.
+
 ### Estándares de autoría de habilidades (OBLIGATORIOS)
 
 Todo skill nuevo o modernizado — incluido, opcional o contribuido — debe cumplir estos estándares antes del merge:
@@ -403,6 +526,13 @@ Todo skill nuevo o modernizado — incluido, opcional o contribuido — debe cum
 7. **Los tests viven en `tests/skills/test_<skill>_skill.py`** y usan solo stdlib + pytest + `unittest.mock`. Sin llamadas de red en vivo.
 
 8. **Las adiciones a `.env.example` están aisladas en un bloque claramente delimitado.**
+
+### Directrices de habilidades
+
+- **Sin dependencias externas salvo que sea absolutamente necesario.** Prefiere Python de la stdlib, curl y las herramientas existentes de Hermes (`web_extract`, `terminal`, `read_file`).
+- **Divulgación progresiva.** Pon el flujo de trabajo más común primero. Los casos extremos y el uso avanzado van al final.
+- **Incluye scripts auxiliares** para parseo XML/JSON o lógica compleja — no esperes que el LLM escriba parsers en línea cada vez.
+- **Pruébala.** Ejecuta `hermes --toolsets skills -q "Usa la habilidad X para hacer Y"` y verifica que el agente sigue las instrucciones correctamente.
 
 ---
 
